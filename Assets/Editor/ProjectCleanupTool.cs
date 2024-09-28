@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -63,6 +65,7 @@ public class ProjectCleanupTool : EditorWindow
         if (findUnusedAssets)
         {
             Debug.Log("Finding unused assets...");
+            FindUnusedAssets();
         }
 
         if (findDuplicateAssets)
@@ -82,6 +85,101 @@ public class ProjectCleanupTool : EditorWindow
         }
     }
 
+    // Function to find unused assets
+    private void FindUnusedAssets()
+    {
+        // Get all assets in the project
+        string[] allAssets = AssetDatabase.GetAllAssetPaths();
+
+        List<string> unusedAssets = new List<string>();
+
+        // Check each asset to see if it is used in any scenes, prefabs, etc.
+        foreach (var assetPath in allAssets)
+        {
+            if (IsAssetUnused(assetPath))
+            {
+                unusedAssets.Add(assetPath);
+            }
+        }
+
+        // Display results in a new window
+        UnusedAssetsWindow.ShowWindow(unusedAssets);
+    }
+
+    // Function to determine if an asset is unused
+    private bool IsAssetUnused(string assetPath)
+    {
+        // Exclude certain directories and files (e.g., Editor folders, Resources, StreamingAssets, Packages, .prefs files)
+        if (assetPath.StartsWith("Assets/Editor") ||
+            assetPath.Contains("/Resources/") ||
+            assetPath.Contains("/StreamingAssets/") ||
+            assetPath.StartsWith("Packages/") ||                 // Exclude default packages
+            assetPath.StartsWith("ProjectSettings/") ||          // Exclude project settings files
+            assetPath.StartsWith("Assets/Standard Assets/") ||   // Exclude standard assets
+            assetPath.StartsWith("Assets/TextMesh Pro/") ||      // Exclude TextMeshPro package
+            assetPath.StartsWith("Assets/PostProcessing/") ||    // Exclude PostProcessing package
+            assetPath.EndsWith(".prefs"))                        // Exclude .prefs files
+        {
+            return false;
+        }
+
+        // Check if the asset is a folder or meta file
+        if (System.IO.Directory.Exists(assetPath) || assetPath.EndsWith(".meta"))
+        {
+            return false;
+        }
+
+        // If the asset is a sprite sheet (Texture2D), check if its sprites are used
+        if (AssetDatabase.GetMainAssetTypeAtPath(assetPath) == typeof(Texture2D))
+        {
+            // Get the sprites from the sprite sheet
+            Object[] sprites = AssetDatabase.LoadAllAssetRepresentationsAtPath(assetPath);
+
+            // Check if any of the sprites are used
+            foreach (Object sprite in sprites)
+            {
+                if (sprite is not Sprite)
+                {
+                    continue;
+                }
+                if (IsSpriteUsed((Sprite)sprite))
+                {
+                    return false;  // If any sprite is used, the whole sprite sheet is considered used
+                }
+            }
+
+            // If no sprites are used, consider the sprite sheet unused
+            return true;
+        }
+
+        // Check if the asset is referenced anywhere in the project
+        string[] assetDependencies = AssetDatabase.GetDependencies(assetPath);
+        if (assetDependencies.Length <= 1)  // If the only dependency is itself
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    // Function to check if a specific sprite is used
+    private bool IsSpriteUsed(Sprite sprite)
+    {
+        string spritePath = AssetDatabase.GetAssetPath(sprite);
+
+        // Check if the sprite is used in any animations, prefabs, or scenes
+        string[] allAssets = AssetDatabase.GetAllAssetPaths();
+        foreach (string asset in allAssets)
+        {
+            if (AssetDatabase.GetDependencies(asset).Contains(spritePath))
+            {
+                return true;  // The sprite is used in this asset
+            }
+        }
+
+        return false;
+    }
+
     // Custom styling for toggle buttons
     private GUIStyle GetToggleStyle()
     {
@@ -95,7 +193,6 @@ public class ProjectCleanupTool : EditorWindow
 
         return toggleStyle;
     }
-
 
     // Custom styling for the 'Run Cleanup' button
     private GUIStyle GetButtonStyle()
